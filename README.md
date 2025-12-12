@@ -4,9 +4,11 @@
 
 This project implements a software modem that encodes arbitrary binary files into a video stream. Unlike traditional barcodes or QR codes, this system uses shifting sinusoidal patches to store data, which makes it more efficiently use the available video channel bandwidth.
 
-The main difference of this project from similar projects is that instead of trying to encode more data into frames, it tries to maximize the video channel utilization (defined as the ratio of actual data bits transmitted per second to the average bit rate of the video), and therefore increasing the reliability of data transmission even after a few lossy compression passes. See the "Technical Details" section for more information.
+The main difference of this project from similar projects is that instead of trying to encode more data into frames, it tries to maximize the video channel utilization (defined as the ratio of actual data bits transmitted per second to the average bit rate of the video), and therefore increasing the reliability of data transmission even after a few lossy compression passes. See the "Technical Details" section for more information
 
-The goal of this project is to create a robust and efficient method for storing and transmitting binary data through video streams, in the hopes that we can create a target data rate for a given (arbitrary, black-box) video codec like ones used by media streaming services or social media platforms, and have the data decode reliably after compression.
+The goal of this project is to design an encoding scheme so that given an educated guess on the target bitrate of a specific, black box codec (like a media streaming service or social network site), the project can create a video that decodes reliably regardless of the detailed implementation and configurations of that codec, with as little bit rate overhead as possible.
+
+The project was started mainly for educational and research purposes. It might not find any practical use as of now, but at least it turned out to be an interesting project to work on, and to peek into how video codecs work. 
 
 ## Usage
 
