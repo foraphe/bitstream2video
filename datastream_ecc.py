@@ -1,5 +1,6 @@
 from reedsolo import RSCodec, ReedSolomonError
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
 class DataStream:
     """
@@ -126,6 +127,18 @@ class DataStream:
                 bit_count -= 8
         return bytes(byte_array)
 
+def worker_decode(rsc, blocks, error_mask, fail_mask, ecc_data_bytes):
+    for i in range(blocks.shape[0]):
+        block = bytes(blocks[i])
+        try: 
+            decoded_block, _, erratas = rsc.decode(block)
+            error_mask[i] = len(erratas)
+            blocks[i, :ecc_data_bytes] = np.frombuffer(decoded_block, dtype=np.uint8)
+        except ReedSolomonError as e:
+            print(f"Reed-Solomon decoding error in worker: {e}")
+            fail_mask[i] = True
+    return blocks, error_mask, fail_mask
+
 class ECCDecoder():
     """
     Decodes byte streams with Reed-Solomon ECC.
@@ -156,24 +169,44 @@ class ECCDecoder():
         assert length % block_size == 0, "Length to decode must be multiple of ECC block size"
         errors = np.zeros(length // block_size, dtype=int)
         failures_mask = np.zeros(length // block_size, dtype=bool)
-        for i in range(0, length, block_size):
-            print(f"\rDecoding block {i // block_size + 1}/{length // block_size}", end='', flush=True)
-            block = bytes(self._buf[i:i+block_size])
-            # Descramble if needed
-            if self.scrambler is not None:
-                block = self.scrambler.descramble(block)
-            try:
-                decoded_block, _, erratas = self.rsc.decode(block)
-                decoded_data.extend(decoded_block)
-                errors[i // block_size] = len(erratas)
-            except ReedSolomonError as e:
-                print(f"Reed-Solomon decoding error at block starting byte {i}: {e}")
-                # Use original data on failure
-                decoded_data.extend(block[:self.cfg.ecc_data_bytes])
-                failures_mask[i // block_size] = True
-        self._buf = [] # Clear buffer after decoding
-        print()
-        print(f"ECC Decoding complete: {np.sum(errors)} total errors corrected across {len(errors)} blocks.")
-        return decoded_data, errors, failures_mask
+        bytebuf = np.array(self._buf[:length], dtype=np.uint8)
+        bytebuf = bytebuf.reshape(length // block_size, block_size)
 
+        if self.scrambler is not None:
+            for i in range(length // block_size):
+                if i % 1000 == 999:
+                    print(f"\rDescrambling block {i + 1}/{bytebuf.shape[0]}", end='', flush=True)
+                block = bytes(bytebuf[i])
+                descrambled_block = self.scrambler.descramble(block)
+                bytebuf[i] = np.frombuffer(descrambled_block, dtype=np.uint8)
+
+        print(f"\rFinished descrambling {length // block_size} blocks.")
+
+        # Pre-allocate the decoded buffer
+        decoded_buf = np.zeros((bytebuf.shape[0], self.cfg.ecc_data_bytes), dtype=np.uint8)
+
+        N_WORKERS = 16
+        # First slice our data into chunks for each worker
+        chunked_blocks = np.array_split(bytebuf, N_WORKERS, axis=0)
+        errors_chunks = np.array_split(errors, N_WORKERS)
+        failures_chunks = np.array_split(failures_mask, N_WORKERS)
         
+        # Now we happily spawn as much processes as RAM allows
+        with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
+            futures = []
+            for i in range(N_WORKERS):
+                print(f"\rSpawning {i + 1} of {N_WORKERS} ECC decoding worker processes..", end='', flush=True)
+                rsc_instance = RSCodec(self.cfg.ecc_bytes)
+                future = executor.submit(worker_decode, rsc_instance, chunked_blocks[i], errors_chunks[i], failures_chunks[i], self.cfg.ecc_data_bytes)
+                futures.append(future)
+            print("\nWaiting for ECC decoding workers to complete...")
+            for i, future in enumerate(futures):
+                decoded_chunk, error_chunk, fail_chunk = future.result()
+                start_idx = sum(len(c) for c in chunked_blocks[:i])
+                decoded_buf[start_idx:start_idx + decoded_chunk.shape[0], :] = decoded_chunk[:, :self.cfg.ecc_data_bytes]
+                errors[start_idx:start_idx + error_chunk.shape[0]] = error_chunk
+                failures_mask[start_idx:start_idx + fail_chunk.shape[0]] = fail_chunk
+        print(f"ECC Decoding complete: {np.sum(errors)} total errors corrected across {len(errors)} blocks.")
+
+        return decoded_buf.flatten().tobytes(), errors, failures_mask
+
