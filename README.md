@@ -16,11 +16,9 @@ The project was started mainly for educational and research purposes. It might n
 *   Python 3.x
 *   `av` (PyAV)
 *   `numpy`
-*   `opencv-python`
 *   `reedsolo`
 *   `numba` (for JIT compilation)
-
-`opencv-python` is currently imported by not used, this will be fixed
+*   `matplotlib` (for testing and visualization)
 
 ### Encoding
 To encode a file into a video:

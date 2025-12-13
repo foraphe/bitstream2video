@@ -1,4 +1,3 @@
-import cv2
 import numpy as np
 import math
 import concurrent.futures
@@ -142,9 +141,6 @@ assert cfg.ecc_blocks_w * cfg.ecc_blocks_h == cfg.rs_blocks_per_frame, "ECC bloc
 # after every 222 bytes of data (592 symbols)
 rsc = RSCodec(30)
 
-import numpy as np
-import cv2
-import math
 import random
 
 def build_sinusoidal_patch(cfg, phase_x = 0, phase_y = 0):
