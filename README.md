@@ -18,6 +18,7 @@ The project was started mainly for educational and research purposes. It might n
 *   `numpy`
 *   `opencv-python`
 *   `reedsolo`
+*   `numba` (for JIT compilation)
 
 `opencv-python` is currently imported by not used, this will be fixed
 

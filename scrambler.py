@@ -1,19 +1,62 @@
 # Scrambler module for encoding and decoding binary data using LFSR
 from LFSR import LFSR
 import numpy as np
+from numba import jit
+
+# JIT-compiled kernel for high performance
+@jit(nopython=True)
+def _scramble_jit(data, state, tap_mask, length):
+    n = len(data)
+    out = np.empty(n, dtype=np.uint8)
+    feedback_shift = length - 1
+    
+    for i in range(n):
+        byte_val = 0
+        # Unroll 8 bits per byte
+        for _ in range(8):
+            output_bit = state & 1
+            
+            # Calculate feedback (popcount of masked state)
+            masked = state & tap_mask
+            # Manual popcount compatible with Numba
+            c = 0
+            v = masked
+            while v > 0:
+                v &= (v - 1)
+                c += 1
+            feedback = c & 1
+            
+            state >>= 1
+            state |= (feedback << feedback_shift)
+            
+            # MSB first packing
+            byte_val = (byte_val << 1) | output_bit
+        
+        out[i] = data[i] ^ byte_val
+        
+    return out, state
 
 class Scrambler:
     def __init__(self, seed = 0b010101010, taps=[0, 4], length=9):
         self.lfsr = LFSR(seed, taps, length)
 
     def scramble(self, data):
-        # Generate the entire keystream as bytes
-        key_stream = self.lfsr.generate_bytes(len(data))
-        
+        # Convert input to numpy array
         data_np = np.frombuffer(data, dtype=np.uint8)
-        key_np = np.frombuffer(key_stream, dtype=np.uint8)
         
-        return (data_np ^ key_np).tobytes()
+        # Run the JIT compiled function
+        # We pass the raw state integers to avoid object overhead
+        result_np, new_state = _scramble_jit(
+            data_np, 
+            self.lfsr.state, 
+            self.lfsr.tap_mask, 
+            self.lfsr.length
+        )
+        
+        # Update the LFSR object state
+        self.lfsr.state = new_state
+        
+        return result_np.tobytes()
 
     def descramble(self, data):
         # Descrambling is identical to scrambling due to XOR properties
